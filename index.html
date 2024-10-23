@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixels</title>
+    <style>
+      * {
+        background-color: canvas;
+        color-scheme: light dark;
+      }
+
+      table {
+        table-layout: fixed;
+        border: 1px solid CanvasText;
+        border-collapse: collapse;
+      }
+
+      table.show-grid * {
+        border: inherit;
+      }
+
+      td {
+        width: 20px;
+        height: 20px;
+      }
+
+      td.filled {
+        background-color: CanvasText;
+      }
+    </style>
+  </head>
+
+  <body>
+    <script>
+      // This first quick and dirty implementation uses a look-up table to
+      // "encode" the table's data to Base64URL, modifying a single character to
+      // save the change of a pixel. A better solution would be to store the
+      // data in an ArrayBuffer with either a DataView or a Uint8Array wrapper,
+      // then encoding its value to set a Query String.
+
+      /* prettier-ignore */
+      const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        values = { "A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5, "G": 6, "H": 7, "I": 8, "J": 9, "K": 10, "L": 11, "M": 12, "N": 13, "O": 14, "P": 15, "Q": 16, "R": 17, "S": 18, "T": 19, "U": 20, "V": 21, "W": 22, "X": 23, "Y": 24, "Z": 25, "a": 26, "b": 27, "c": 28, "d": 29, "e": 30, "f": 31, "g": 32, "h": 33, "i": 34, "j": 35, "k": 36, "l": 37, "m": 38, "n": 39, "o": 40, "p": 41, "q": 42, "r": 43, "s": 44, "t": 45, "u": 46, "v": 47, "w": 48, "x": 49, "y": 50, "z": 51, "0": 52, "1": 53, "2": 54, "3": 55, "4": 56, "5": 57, "6": 58, "7": 59, "8": 60, "9": 61, "-": 62, "_": 63 };
+
+      const queryStrings = new URLSearchParams(document.location.search);
+
+      // A grid will be shown by default unless "?g=false" is specified.
+      const grid = queryStrings.get("g") !== "false";
+
+      const { width, height, data } = (() => {
+        try {
+          // If no data is provided, (undefined).split() throws an error.
+          const data = queryStrings.get("d").split("");
+
+          let index = data.length;
+
+          // The data must only contain valid characters.
+          while (--index) if (values[data[index]] === undefined) throw null;
+
+          // This version of the format is distinguished by the prefix "A".
+          if (data[0] !== "A" || data.length < 3) throw null;
+
+          // "?d"'s width and height (characters 2-3) override "?w" and "?h".
+          return {
+            // The range is 1-64, not 0-63, since there can't be 0x0px images.
+            width: values[data[1]] + 1,
+            height: values[data[2]] + 1,
+            data,
+          };
+
+          // The width and height query strings act as fallbacks.
+        } catch {
+          // The range is 1-64px, ensuring the data isn't too long for the URL.
+          const w = Math.max(1, Math.min(64, parseInt(queryStrings.get("w")))),
+            h = Math.max(1, Math.min(64, parseInt(queryStrings.get("h"))));
+
+          // If the values are both invalid (or unspecified), the default is 16.
+          const width = w || h || 16,
+            height = h || w || 16;
+
+          return {
+            width,
+            height,
+            data: ["A", chars[width - 1], chars[height - 1]],
+          };
+        }
+      })();
+
+      // The "pixels" are actually empty square cells within a table's grid.
+      const table = document.createElement("table"),
+        blankRow = document.createElement("tr"),
+        blankCell = document.createElement("td");
+
+      if (grid) table.classList.add("show-grid");
+
+      for (let i = 0; i < height; i++) {
+        const row = blankRow.cloneNode();
+
+        for (let j = 0; j < width; j++) {
+          const cell = blankCell.cloneNode();
+
+          const id = i * width + j;
+          cell.id = id;
+
+          // Since 2**6 is 64, each Base64 character contains 6 bits of data.
+          const sixBits = data[3 + Math.floor(id / 6)];
+
+          // If the part of the data is missing, it is initialized as empty.
+          if (!sixBits) data.push("A"); // "A" is chars[0]
+
+          // The data is only checked if the relevant part isn't empty.
+          if (sixBits !== "A" && (values[sixBits] >> (5 - (id % 6))) & 1) {
+            // If the (id % 6)th bit is 1, this pixel should be filled.
+            cell.classList.add("filled");
+          }
+
+          row.appendChild(cell);
+        }
+
+        table.appendChild(row);
+      }
+
+      document.body.appendChild(table);
+
+      const url = new URL(window.location.href);
+      url.searchParams.set("g", grid);
+      url.searchParams.set("w", width);
+      url.searchParams.set("h", height);
+      url.searchParams.set("d", data.join(""));
+      history.pushState(null, "", url.href);
+
+      document.addEventListener("click", (event) => {
+        const pixel = event.target;
+
+        let id;
+        // If the ID is not a number, NaN === NaN will return false.
+        if ((id = parseInt(pixel.id)) === id) {
+          pixel.classList.toggle("filled");
+
+          const index = 3 + Math.floor(id / 6);
+
+          // Bitwise XOR ^ is used to flip the corresponding bit in the data.
+          data[index] = chars[values[data[index]] ^ (1 << (5 - (id % 6)))];
+
+          url.searchParams.set("d", data.join(""));
+          history.pushState(null, "", url.href);
+        }
+      });
+    </script>
+  </body>
+</html>
